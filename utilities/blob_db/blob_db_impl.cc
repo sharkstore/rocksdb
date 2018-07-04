@@ -604,7 +604,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
     return s;
   }
 
-  virtual Status DeleteRange(uint32_t column_family_id, const Slice& begin_key,
+  virtual Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
                              const Slice& end_key) {
     if (column_family_id != default_cf_id_) {
       return Status::NotSupported(
@@ -1514,7 +1514,9 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
       assert(!found_record_for_key);
       return Status::Busy("Key deleted");
     }
-    assert(found_record_for_key);
+    if (!found_record_for_key) {
+      return Status::Busy("Key deleted");
+    }
     assert(is_blob_index);
     if (latest_seq > upper_bound_) {
       return Status::Busy("Key overwritten");
