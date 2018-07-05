@@ -605,7 +605,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
   }
 
   virtual Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
-                             const Slice& end_key) {
+                             const Slice& end_key) override {
     if (column_family_id != default_cf_id_) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
@@ -669,6 +669,12 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 
       impl_->delete_keys_q_.enqueue({cfh, key.ToString(), sequence_});
       sequence_++;
+      return Status::OK();
+    }
+
+    // TODO:
+    virtual Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                                 const Slice& end_key) override {
       return Status::OK();
     }
 
