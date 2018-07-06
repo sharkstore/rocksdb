@@ -73,10 +73,10 @@ void EvictAllVersionsCompactionListener::InternalListener::OnCompaction(
   assert(impl_->bdb_options_.enable_garbage_collection);
   if (!is_new &&
       value_type ==
-          CompactionEventListener::CompactionListenerValueType::kValue) {
+          CompactionEventListener::CompactionListenerValueType::kBlobIndex) {
     BlobIndex blob_index;
     Status s = blob_index.DecodeFrom(existing_value);
-    if (s.ok()) {
+    if (s.ok() && !blob_index.IsInlined()) {
       if (impl_->debug_level_ >= 3)
         ROCKS_LOG_INFO(
             impl_->db_options_.info_log,
@@ -1016,6 +1016,10 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
     // memory buffer to avoid extra copy.
     value->PinSelf(blob_index.value());
+    if (debug_level_ >= 3)
+          ROCKS_LOG_INFO(db_options_.info_log,
+                         "is inlined. key: %s, value_size: %" PRIu64,
+                         key.data(), blob_index.value().size());
     return Status::OK();
   }
   if (blob_index.size() == 0) {
@@ -1127,6 +1131,10 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
 
   if (bfile->compression() == kNoCompression) {
     value->PinSelf(blob_value);
+    if (debug_level_ >= 3)
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "no compression. key: %s, value_size: %" PRIu64,
+                       key.data(), blob_index.size());
   } else {
     BlockContents contents;
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
@@ -1139,6 +1147,10 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
           *(cfh->cfd()->ioptions()));
     }
     value->PinSelf(contents.data);
+    if (debug_level_ >= 3)
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "compression. key: %s, value_size: %" PRIu64 " content_size: %" PRIu64,
+                       key.data(), blob_value.size(), contents.data.size());
   }
 
   return s;
@@ -1577,8 +1589,9 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 
   bool first_gc = bfptr->gc_once_after_open_;
 
-  auto* cfh =
-      db_impl_->GetColumnFamilyHandleUnlocked(bfptr->column_family_id());
+  //auto* cfh =
+  //    db_impl_->GetColumnFamilyHandleUnlocked(bfptr->column_family_id());
+  auto* cfh = DefaultColumnFamily();
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
   auto column_family_id = cfd->GetID();
   bool has_ttl = header.has_ttl;
@@ -1649,7 +1662,12 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       // inlined in LSM.
       gc_stats->num_keys_overwritten++;
       gc_stats->bytes_overwritten += record.record_size();
-      continue;
+      if (debug_level_ >= 3)
+          ROCKS_LOG_INFO(db_options_.info_log,
+                         "Error not found or is not blob index. key: %s, %d, %d",
+                         record.key.data(), get_status.IsNotFound(), is_blob_index);
+
+        continue;
     }
 
     BlobIndex blob_index;
@@ -1666,6 +1684,17 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       // Key has been overwritten. Drop the blob record.
       gc_stats->num_keys_overwritten++;
       gc_stats->bytes_overwritten += record.record_size();
+      if (blob_index.IsInlined()) {
+          if (debug_level_ >= 3)
+              ROCKS_LOG_INFO(db_options_.info_log,
+                             "Error invalid. key: %s, %d",
+                             record.key.data(), blob_index.IsInlined());
+      } else {
+          if (debug_level_ >= 3)
+              ROCKS_LOG_INFO(db_options_.info_log,
+                             "Error invalid. key: %s, %d, %d",
+                             record.key.data(), blob_index.file_number() != bfptr->BlobFileNumber(), blob_index.offset() != blob_offset);
+      }
       continue;
     }
 
@@ -1712,6 +1741,12 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       newfile->header_ = std::move(header);
       // Can't use header beyond this point
       newfile->header_valid_ = true;
+      // patch
+      newfile->SetColumnFamilyId(bfptr->header_.column_family_id);
+      newfile->SetHasTTL(bfptr->HasTTL());
+      newfile->SetCompression(bfptr->compression());
+      newfile->expiration_range_ = bfptr->GetExpirationRange();
+
       newfile->file_size_ = BlobLogHeader::kSize;
       s = new_writer->WriteHeader(newfile->header_);
 
@@ -1737,6 +1772,10 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     BlobIndex::EncodeBlob(&new_index_entry, newfile->BlobFileNumber(),
                           new_blob_offset, record.value.size(),
                           bdb_options_.compression);
+
+    if (debug_level_ >= 3)
+        ROCKS_LOG_INFO(db_options_.info_log, "gc rewrite: key: %s, index: %s, FN: %" PRIu64 " OFFSET: %" PRIu64 " SIZE: %" PRIu64,
+                       record.key_buf.c_str(), new_index_entry.c_str(), newfile->BlobFileNumber(), new_blob_offset, record.value_size);
 
     newfile->blob_count_++;
     newfile->file_size_ +=
@@ -1767,8 +1806,9 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   }  // end of ReadRecord loop
 
   if (s.ok()) {
-    bfptr->MarkObsolete(GetLatestSequenceNumber());
+
     if (!first_gc) {
+      bfptr->MarkObsolete(GetLatestSequenceNumber());
       WriteLock wl(&mutex_);
       obsolete_files_.push_back(bfptr);
     }
@@ -1796,6 +1836,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     total_blob_space_ += newfile->file_size_;
     ROCKS_LOG_INFO(db_options_.info_log, "New blob file %" PRIu64 ".",
                    newfile->BlobFileNumber());
+    newfile->MarkImmutable();
     RecordTick(statistics_, BLOB_DB_GC_NUM_NEW_FILES);
     RecordTick(statistics_, BLOB_DB_GC_NUM_KEYS_RELOCATED,
                gc_stats->num_keys_relocated);
