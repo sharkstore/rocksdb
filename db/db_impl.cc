@@ -2710,7 +2710,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     }
   }
 
-  return Status::OK();
+  return s;
 }
 
 Status DBImpl::IngestExternalFile(

@@ -1529,7 +1529,6 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
       return s;
     }
     if (s.IsNotFound()) {
-      assert(!found_record_for_key);
       return Status::Busy("Key deleted");
     }
     if (!found_record_for_key) {
