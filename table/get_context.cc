@@ -18,16 +18,19 @@ namespace rocksdb {
 
 namespace {
 
-void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
+void appendToReplayLog(std::string* replay_log, ValueType type, Slice value,
+                       SequenceNumber seq) {
 #ifndef ROCKSDB_LITE
   if (replay_log) {
     if (replay_log->empty()) {
       // Optimization: in the common case of only one operation in the
       // log, we allocate the exact amount of space needed.
-      replay_log->reserve(1 + VarintLength(value.size()) + value.size());
+      replay_log->reserve(1 + VarintLength(value.size()) + value.size() +
+                          kMaxVarint64Length);
     }
     replay_log->push_back(type);
     PutLengthPrefixedSlice(replay_log, value);
+    PutVarint64(replay_log, seq);
   }
 #endif  // ROCKSDB_LITE
 }
@@ -79,7 +82,7 @@ void GetContext::MarkKeyMayExist() {
 
 void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   assert(state_ == kNotFound);
-  appendToReplayLog(replay_log_, kTypeValue, value);
+  appendToReplayLog(replay_log_, kTypeValue, value, seq);
 
   state_ = kFound;
   if (LIKELY(pinnable_val_ != nullptr)) {
@@ -104,7 +107,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       return true;  // to continue to the next seq
     }
 
-    appendToReplayLog(replay_log_, parsed_key.type, value);
+    appendToReplayLog(replay_log_, parsed_key.type, value, parsed_key.sequence);
 
     if (seq_ != nullptr) {
       // Set the sequence number if it is uninitialized
@@ -229,13 +232,13 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     Slice value;
     bool ret = GetLengthPrefixedSlice(&s, &value);
     assert(ret);
+    uint64_t seq = 0;
+    ret = GetVarint64(&s, &seq);
+    assert(ret);
     (void)ret;
 
-    // Since SequenceNumber is not stored and unknown, we will use
-    // kMaxSequenceNumber.
-    get_context->SaveValue(
-        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
-        value_pinner);
+    get_context->SaveValue(ParsedInternalKey(user_key, seq, type), value,
+                           value_pinner);
   }
 #else   // ROCKSDB_LITE
   assert(false);
