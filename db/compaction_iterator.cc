@@ -597,6 +597,13 @@ void CompactionIterator::NextFromInput() {
       bool should_delete = range_del_agg_->ShouldDelete(
           key_, RangeDelAggregator::RangePositioningMode::kForwardTraversal);
       if (should_delete) {
+#ifndef ROCKSDB_LITE
+        if (compaction_listener_) {
+          compaction_listener_->OnCompaction(compaction_->level(), ikey_.user_key,
+                                             fromInternalValueType(ikey_.type),
+                                             value_, ikey_.sequence, false);
+        }
+#endif  // ROCKSDB_LITE
         ++iter_stats_.num_record_drop_hidden;
         ++iter_stats_.num_record_drop_range_del;
         input_->Next();
