@@ -78,6 +78,20 @@ struct BlobDBOptions {
   // blob files will be cleanup based on TTL.
   bool enable_garbage_collection = false;
 
+  // gc period
+  uint32_t gc_period_milliseconds = 60 * 1000;
+
+  // gc max check files percentage each check period
+  uint32_t max_gc_files_percent = 100;
+
+  // gc max check files number each check period
+  // TODO:
+  uint32_t max_gc_files_number = 10;
+
+  // this should be based on allowed Write Amplification
+  // if 75% of the space of a blob file has been deleted/expired,
+  uint32_t gc_file_expired_percent = 75;
+
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
 

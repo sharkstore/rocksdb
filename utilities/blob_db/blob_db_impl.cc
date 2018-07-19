@@ -211,7 +211,7 @@ void BlobDBImpl::StartBackgroundTasks() {
   tqueue_.add(
       kReclaimOpenFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::ReclaimOpenFiles, this, std::placeholders::_1));
-  tqueue_.add(kGCCheckPeriodMillisecs,
+  tqueue_.add(bdb_options_.gc_period_milliseconds,
               std::bind(&BlobDBImpl::RunGC, this, std::placeholders::_1));
   if (bdb_options_.enable_garbage_collection) {
     tqueue_.add(
@@ -1879,7 +1879,7 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
 
     ReadLock lockbfile_r(&bfile->mutex_);
     bool ret = ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-                kPartialExpirationPercentage);
+                bdb_options_.gc_file_expired_percent);
     if (ret) {
       *reason = "deleted blobs beyond threshold";
     } else {
@@ -1899,7 +1899,7 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
 
   if (bdb_options_.enable_garbage_collection) {
     if ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-        kPartialExpirationPercentage) {
+        bdb_options_.gc_file_expired_percent) {
       *reason = "deleted simple blobs beyond threshold";
       return true;
     }
@@ -2011,7 +2011,7 @@ void BlobDBImpl::FilterSubsetOfFiles(
     size_t files_to_collect) {
   // 100.0 / 15.0 = 7
   uint64_t next_epoch_increment = static_cast<uint64_t>(
-      std::ceil(100 / static_cast<double>(kGCFilePercentage)));
+      std::ceil(100 / static_cast<double>(bdb_options_.max_gc_files_percent)));
   uint64_t now = EpochNow();
 
   size_t files_processed = 0;
@@ -2073,7 +2073,7 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
 
   // 15% of files are collected each call to space out the IO and CPU
   // consumption.
-  size_t files_to_collect = (kGCFilePercentage * blob_files.size()) / 100;
+  size_t files_to_collect = (bdb_options_.max_gc_files_percent * blob_files.size()) / 100;
 
   std::vector<std::shared_ptr<BlobFile>> to_process;
   FilterSubsetOfFiles(blob_files, &to_process, current_epoch_,

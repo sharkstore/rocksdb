@@ -132,12 +132,6 @@ class BlobDBImpl : public BlobDB {
   // deletions check period
   static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
 
-  // gc percentage each check period
-  static constexpr uint32_t kGCFilePercentage = 100;
-
-  // gc period
-  static constexpr uint32_t kGCCheckPeriodMillisecs = 60 * 1000;
-
   // sanity check task
   static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
 
@@ -153,10 +147,6 @@ class BlobDBImpl : public BlobDB {
   // would have to wait for the entire day, before we
   // recover most of the space.
   static constexpr uint32_t kPartialExpirationGCRangeSecs = 4 * 3600;
-
-  // this should be based on allowed Write Amplification
-  // if 50% of the space of a blob file has been deleted/expired,
-  static constexpr uint32_t kPartialExpirationPercentage = 75;
 
   // how often to schedule reclaim open files.
   static constexpr uint32_t kReclaimOpenFilesPeriodMillisecs = 1 * 1000;

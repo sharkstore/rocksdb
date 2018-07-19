@@ -83,6 +83,14 @@ void BlobDBOptions::Dump(Logger* log) const {
                    static_cast<int>(compression));
   ROCKS_LOG_HEADER(log, "blob_db_options.enable_garbage_collection: %d",
                    enable_garbage_collection);
+  ROCKS_LOG_HEADER(log, "blob_db_options.gc_period_milliseconds: %" PRIu32,
+                   gc_period_milliseconds);
+  ROCKS_LOG_HEADER(log, "blob_db_options.max_gc_files_percent: %" PRIu32,
+                   max_gc_files_percent);
+  ROCKS_LOG_HEADER(log, "blob_db_options.max_gc_files_number: %" PRIu32,
+                   max_gc_files_number);
+  ROCKS_LOG_HEADER(log, "blob_db_options.gc_file_expired_percent: %" PRIu32,
+                   gc_file_expired_percent);
   ROCKS_LOG_HEADER(log, " blob_db_options.disable_background_tasks: %d",
                    disable_background_tasks);
 }
