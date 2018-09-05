@@ -1001,6 +1001,11 @@ bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
   return true;
 }
 
+static void deleteBlobCacheEntry(const Slice& key, void* value) {
+  std::string* str_value = reinterpret_cast<std::string*>(value);
+  delete str_value;
+}
+
 Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
                                 PinnableSlice* value) {
   assert(value != nullptr);
@@ -1060,6 +1065,23 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     value->PinSelf("");
     return Status::OK();
   }
+
+#ifndef ROCKSDB_LITE
+  // try to get from cache
+  if (bdb_options_.blob_cache) {
+    auto blob_handle = bdb_options_.blob_cache->Lookup(index_entry);
+    if (blob_handle) {
+      auto blob_entry = static_cast<const std::string*>(
+          bdb_options_.blob_cache->Value(blob_handle));
+      value->PinSelf(*blob_entry);
+      bdb_options_.blob_cache->Release(blob_handle);
+      RecordTick(statistics_, BLOB_DB_CACHE_HIT);
+      return Status::OK();
+    } else {
+      RecordTick(statistics_, BLOB_DB_CACHE_MISS);
+    }
+  }
+#endif  // ROCKSDB_LITE
 
   // takes locks when called
   std::shared_ptr<RandomAccessFileReader> reader =
@@ -1152,6 +1174,16 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
                        "compression. key: %s, value_size: %" PRIu64 " content_size: %" PRIu64,
                        key.data(), blob_value.size(), contents.data.size());
   }
+
+#ifndef ROCKSDB_LITE
+  // fill cache
+  if (bdb_options_.blob_cache && !value->empty()) {
+    size_t charge = index_entry.size() + value->size() + sizeof(std::string);
+    void* blob_ptr = new std::string(value->data(), value->size());
+    bdb_options_.blob_cache->Insert(index_entry, blob_ptr, charge,
+                                    &deleteBlobCacheEntry);
+  }
+#endif  // ROCKSDB_LITE
 
   return s;
 }
@@ -1286,7 +1318,7 @@ bool BlobDBImpl::VisibleToActiveSnapshot(
   {
     // Need to lock DBImpl mutex before access snapshot list.
     InstrumentedMutexLock l(db_impl_->mutex());
-    auto &snapshots = db_impl_->snapshots();
+    auto& snapshots = db_impl_->snapshots();
     if (!snapshots.empty()) {
       oldest_snapshot = snapshots.oldest()->GetSequenceNumber();
     }

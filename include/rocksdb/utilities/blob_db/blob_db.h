@@ -95,6 +95,9 @@ struct BlobDBOptions {
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
 
+  // blob record cache
+  std::shared_ptr<Cache> blob_cache;
+
   void Dump(Logger* log) const;
 };
 
