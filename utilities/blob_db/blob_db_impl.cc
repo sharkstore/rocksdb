@@ -1015,7 +1015,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return s;
   }
   if (blob_index.HasTTL() && blob_index.expiration() <= EpochNow()) {
-    return Status::NotFound("Key expired");
+    return Status::Expired();
   }
   if (blob_index.IsInlined()) {
     // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
@@ -1220,6 +1220,9 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
     std::string index_entry = value->ToString();
     value->Reset();
     s = GetBlobValue(key, index_entry, value);
+    if (s.IsExpired()) {
+      s = Status::NotFound();
+    }
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);

@@ -108,6 +108,10 @@ class BlobDBIterator : public Iterator {
     value_.Reset();
     if (iter_->Valid() && iter_->IsBlob()) {
       status_ = blob_db_->GetBlobValue(iter_->key(), iter_->value(), &value_);
+      // expired will be valid, but return a empty value
+      if (status_.IsExpired()) {
+        status_ = Status::OK();
+      }
     }
   }
 
